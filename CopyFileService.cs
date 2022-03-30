@@ -18,21 +18,25 @@ namespace CopyFileService
     {
 
         #region field
-        private string LogFileName =System.AppDomain.CurrentDomain.BaseDirectory+ @"OperationLog.txt";
-        private string SourcePath = @"C:\Source";
-        private string DestinationPath = @"C:\Distination";
-        private OperatoionType OpType = OperatoionType.FileCopy;
+        private static string CurrentPath = System.AppDomain.CurrentDomain.BaseDirectory;
+        private string LogFileName ;
+        private string SourcePath ;
+        private string DestinationPath ;
+        private OperatoionType OpType;
         private FileSystemWatcher FSW;
 
         #endregion
         public CopyFileService()
         {
             InitializeComponent();
-
             //initial FileSystemWatcher
-            FSW=new FileSystemWatcher(SourcePath);
-            FSW.EnableRaisingEvents = true;
-            FSW.Created += FSW_Created;
+            FSW=new FileSystemWatcher();
+            //initialize field
+            LogFileName = Path.GetFullPath(CurrentPath + @"OperationLog.txt");
+            SourcePath = Path.GetFullPath(CurrentPath + "..\\Source");
+            DestinationPath = Path.GetFullPath(CurrentPath + "..\\Destination");
+            OpType = OperatoionType.FileCopy;
+
         }
 
         private void FSW_Created(object sender, FileSystemEventArgs e)
@@ -49,7 +53,6 @@ namespace CopyFileService
                     WriteLogs($"复制的文件:{e.FullPath}被占用，操作无法完成", DateTime.Now);
                 }
             }
-
             try
             {
                 if (OpType == OperatoionType.FileCopy)
@@ -101,30 +104,50 @@ namespace CopyFileService
         protected override void  OnStart(string[] args)
         {
             //判断log记录文件是否存在,如果不存在则创建
-            if (File.Exists(LogFileName)==false)
+            if (File.Exists(LogFileName) == false)
             {
-              StreamWriter SW= File.CreateText(LogFileName);
-              SW.Close();
+                StreamWriter SW = File.CreateText(LogFileName);
+                SW.Close();
+            }
+            //read app configuration file
+            Tuple<string, string, OperatoionType> configvalue;
+            try
+            {
+                configvalue = GetConfigValue(GetConfiguration(), new string[] { "SourcePath", "DestinationPath", "OperationType" });
+                if (configvalue.Item1 !=SourcePath)
+                {
+                    SourcePath = configvalue.Item1;
+                }
+                if (configvalue.Item2 !=DestinationPath)
+                {
+                    DestinationPath = configvalue.Item2;
+                }
+                if (configvalue.Item3 != OpType)
+                {
+                    OpType = configvalue.Item3;
+                }
+
+            }
+            catch (Exception ex)
+            {
+                WriteLogs(ex.Message, DateTime.Now);
             }
 
-            //read app configuration file
-            Configuration config = GetConfiguration();
-            if (config.AppSettings.Settings.AllKeys.Contains<string>("SourcePath"))
+            //判断源目录是否存在，如果不存在则创建
+            if (!Directory.Exists(SourcePath))
             {
-                SourcePath = config.AppSettings.Settings["SourcePath"].Value;
+                Directory.CreateDirectory(SourcePath);
             }
-            if (config.AppSettings.Settings.AllKeys.Contains<string>("DestinationPath"))
+            //判断目标目录是否存在，如果不存在则创建
+            if (!Directory.Exists(DestinationPath))
             {
-                DestinationPath = config.AppSettings.Settings["DestinationPath"].Value;
+                Directory.CreateDirectory(DestinationPath);
             }
-            if (config.AppSettings.Settings.AllKeys.Contains<string>("OperationType"))
-            {
-                OpType = (config.AppSettings.Settings["OperationType"].Value) == "FileCopy" ? OperatoionType.FileCopy : OperatoionType.FileMove;
-            }
-            config.Save();
-            config=null;
 
             //设置监视文件夹筛选条件
+            FSW.Path = SourcePath;
+            FSW.EnableRaisingEvents = true;
+            FSW.Created += FSW_Created;
             FSW.NotifyFilter = NotifyFilters.FileName
                                         | NotifyFilters.Attributes
                                         | NotifyFilters.CreationTime;
@@ -133,6 +156,43 @@ namespace CopyFileService
             WriteLogs("CopyFileService Startup", DateTime.Now);
 
         }
+
+        private Tuple<string,string,OperatoionType> GetConfigValue(Configuration config ,string[] keys)
+        {
+            var Appsetting = config.AppSettings;
+            string key1value = null;
+            string key2value = null;
+            OperatoionType key3value = OperatoionType.FileCopy;
+            var result = Tuple.Create<string, string, OperatoionType>(null, null, OperatoionType.FileCopy);
+            if (config.AppSettings.Settings.AllKeys.Contains<string>("SourcePath"))
+            {
+                key1value= Appsetting. Settings[keys[0]].Value;
+            }
+            else
+            {
+                key1value = SourcePath;
+            }
+            if (config.AppSettings.Settings.AllKeys.Contains<string>("DestinationPath"))
+            {
+                key2value= Appsetting.Settings[keys[1]].Value;
+            }
+            else
+            {
+                key2value = DestinationPath;
+            }
+            if (config.AppSettings.Settings.AllKeys.Contains<string>("OperationType"))
+            {
+                key3value= (Appsetting.Settings[keys[2]].Value) == "FileCopy" ? OperatoionType.FileCopy : OperatoionType.FileMove;
+            }
+            else
+            {
+                key3value = OperatoionType.FileCopy;
+            }
+            config.Save();
+            config = null;
+            return new Tuple<string, string, OperatoionType>(key1value, key2value, key3value);
+        }
+
         protected override void OnShutdown()
         {
             this.OnStop();
